@@ -6,9 +6,7 @@ import (
 	"github.com/Krchnk/gw-currency-wallet/internal/handlers"
 	"github.com/Krchnk/gw-currency-wallet/internal/storages/postgres"
 	"github.com/gin-gonic/gin"
-	pb "github.com/proto-exchange/exchange_grpc"
 	"github.com/sirupsen/logrus"
-	"google.golang.org/grpc"
 	"os"
 	"time"
 )
@@ -40,17 +38,11 @@ func main() {
 	}
 	logger.Info("database connection established")
 
-	conn, err := grpc.Dial(cfg.ExchangeServiceAddr, grpc.WithInsecure())
-	if err != nil {
-		logger.WithError(err).Fatal("failed to connect to exchange service")
-	}
-	defer conn.Close()
-	exchangeClient := pb.NewExchangeServiceClient(conn)
-
 	router := gin.Default()
+	router.Use(corsMiddleware())
 	router.Use(loggingMiddleware())
 
-	h := handlers.NewHandler(store, exchangeClient, cfg)
+	h := handlers.NewHandler(store, cfg)
 
 	api := router.Group("/api/v1")
 	{
@@ -70,6 +62,19 @@ func main() {
 	logger.WithField("port", cfg.HTTPPort).Info("starting HTTP server")
 	if err := router.Run(cfg.HTTPPort); err != nil {
 		logger.WithError(err).Fatal("failed to run server")
+	}
+}
+
+func corsMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "http://localhost:3000")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+		c.Next()
 	}
 }
 

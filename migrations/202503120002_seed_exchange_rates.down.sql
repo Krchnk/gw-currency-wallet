@@ -1,0 +1,1 @@
+DELETE FROM exchange_rates WHERE from_currency IN ('USD', 'RUB', 'EUR');

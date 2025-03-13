@@ -3,7 +3,6 @@ package postgres
 import (
 	"database/sql"
 	"errors"
-	"fmt"
 	"github.com/Krchnk/gw-currency-wallet/internal/storages"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/bcrypt"
@@ -13,13 +12,7 @@ type Storage struct {
 	db *sql.DB
 }
 
-func NewStorage(db *sql.DB) *Storage {
-	return &Storage{db: db}
-}
-
-// RegisterUser - регистрация нового пользователя
 func (s *Storage) RegisterUser(username, password, email string) error {
-	// Проверка уникальности username и email
 	var exists int
 	err := s.db.QueryRow("SELECT COUNT(*) FROM users WHERE username = $1 OR email = $2", username, email).Scan(&exists)
 	if err != nil {
@@ -34,14 +27,12 @@ func (s *Storage) RegisterUser(username, password, email string) error {
 		return errors.New("username or email already exists")
 	}
 
-	// Хеширование пароля
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		logrus.WithError(err).Error("failed to hash password")
 		return err
 	}
 
-	// Вставка нового пользователя
 	_, err = s.db.Exec(`
         INSERT INTO users (username, password_hash, email, created_at)
         VALUES ($1, $2, $3, NOW())`,
@@ -58,7 +49,6 @@ func (s *Storage) RegisterUser(username, password, email string) error {
 	return nil
 }
 
-// GetUser - получение пользователя по username
 func (s *Storage) GetUser(username string) (storages.User, error) {
 	var user storages.User
 	err := s.db.QueryRow(`
@@ -79,7 +69,6 @@ func (s *Storage) GetUser(username string) (storages.User, error) {
 	return user, nil
 }
 
-// GetBalance - получение баланса пользователя
 func (s *Storage) GetBalance(userID string) (map[string]float64, error) {
 	rows, err := s.db.Query(`
         SELECT currency, amount
@@ -103,7 +92,6 @@ func (s *Storage) GetBalance(userID string) (map[string]float64, error) {
 		balance[currency] = amount
 	}
 
-	// Заполняем нули для отсутствующих валют
 	for _, currency := range []string{"USD", "RUB", "EUR"} {
 		if _, exists := balance[currency]; !exists {
 			balance[currency] = 0.0
@@ -117,7 +105,6 @@ func (s *Storage) GetBalance(userID string) (map[string]float64, error) {
 	return balance, nil
 }
 
-// Deposit - пополнение счета
 func (s *Storage) Deposit(userID, currency string, amount float64) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -154,7 +141,6 @@ func (s *Storage) Deposit(userID, currency string, amount float64) error {
 	return nil
 }
 
-// Withdraw - вывод средств
 func (s *Storage) Withdraw(userID, currency string, amount float64) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -220,7 +206,6 @@ func (s *Storage) Withdraw(userID, currency string, amount float64) error {
 	return nil
 }
 
-// Exchange - обмен валют
 func (s *Storage) Exchange(userID, fromCurrency, toCurrency string, amount, rate float64) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -229,7 +214,6 @@ func (s *Storage) Exchange(userID, fromCurrency, toCurrency string, amount, rate
 	}
 	defer tx.Rollback()
 
-	// Проверка баланса исходной валюты
 	var fromBalance float64
 	err = tx.QueryRow(`
         SELECT amount
@@ -259,7 +243,6 @@ func (s *Storage) Exchange(userID, fromCurrency, toCurrency string, amount, rate
 		return errors.New("insufficient funds")
 	}
 
-	// Вычитание из исходной валюты
 	_, err = tx.Exec(`
         INSERT INTO balances (user_id, currency, amount)
         VALUES ($1, $2, $3)
@@ -275,7 +258,6 @@ func (s *Storage) Exchange(userID, fromCurrency, toCurrency string, amount, rate
 		return err
 	}
 
-	// Прибавление к целевой валюте
 	toAmount := amount * rate
 	_, err = tx.Exec(`
         INSERT INTO balances (user_id, currency, amount)
@@ -306,4 +288,62 @@ func (s *Storage) Exchange(userID, fromCurrency, toCurrency string, amount, rate
 		"to_amount":     toAmount,
 	}).Info("exchange completed in database")
 	return nil
+}
+
+func (s *Storage) GetExchangeRates() (map[string]float64, error) {
+	rows, err := s.db.Query(`
+        SELECT to_currency, rate
+        FROM exchange_rates
+        WHERE from_currency = $1`,
+		"USD")
+	if err != nil {
+		logrus.WithError(err).Error("failed to query exchange rates")
+		return nil, err
+	}
+	defer rows.Close()
+
+	rates := make(map[string]float64)
+	rates["USD"] = 1.0 // USD как базовая валюта
+	for rows.Next() {
+		var currency string
+		var rate float64
+		if err := rows.Scan(&currency, &rate); err != nil {
+			logrus.WithError(err).Error("failed to scan exchange rates")
+			return nil, err
+		}
+		rates[currency] = rate
+	}
+
+	logrus.WithField("rates", rates).Info("exchange rates retrieved from database")
+	return rates, nil
+}
+
+func (s *Storage) GetExchangeRate(from, to string) (float64, error) {
+	var rate float64
+	err := s.db.QueryRow(`
+        SELECT rate
+        FROM exchange_rates
+        WHERE from_currency = $1 AND to_currency = $2`,
+		from, to).Scan(&rate)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			logrus.WithFields(logrus.Fields{
+				"from": from,
+				"to":   to,
+			}).Error("exchange rate not found")
+			return 0, errors.New("exchange rate not found")
+		}
+		logrus.WithFields(logrus.Fields{
+			"from": from,
+			"to":   to,
+		}).WithError(err).Error("failed to get exchange rate")
+		return 0, err
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"from": from,
+		"to":   to,
+		"rate": rate,
+	}).Info("exchange rate retrieved from database")
+	return rate, nil
 }

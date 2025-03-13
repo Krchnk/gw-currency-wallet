@@ -1,17 +1,13 @@
 package handlers
 
 import (
-	"context"
-	"crypto/rand"
-	"encoding/base64"
 	"fmt"
+	"github.com/Krchnk/gw-currency-wallet/internal/config"
+	"github.com/Krchnk/gw-currency-wallet/internal/storages"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/gin-gonic/gin"
 	"github.com/patrickmn/go-cache"
-	pb "github.com/proto-exchange/exchange_grpc"
 	"github.com/sirupsen/logrus"
-	"github.com/yourusername/gw-currency-wallet/internal/config"
-	"github.com/yourusername/gw-currency-wallet/internal/storages"
 	"golang.org/x/crypto/bcrypt"
 	"os"
 	"time"
@@ -29,22 +25,19 @@ func init() {
 }
 
 type Handler struct {
-	store          storages.Storage
-	exchangeClient pb.ExchangeServiceClient
-	cfg            config.Config
-	cache          *cache.Cache
+	store storages.Storage
+	cfg   config.Config
+	cache *cache.Cache
 }
 
-func NewHandler(store storages.Storage, client pb.ExchangeServiceClient, cfg config.Config) *Handler {
+func NewHandler(store storages.Storage, cfg config.Config) *Handler {
 	return &Handler{
-		store:          store,
-		exchangeClient: client,
-		cfg:            cfg,
-		cache:          cache.New(5*time.Minute, 10*time.Minute),
+		store: store,
+		cfg:   cfg,
+		cache: cache.New(5*time.Minute, 10*time.Minute),
 	}
 }
 
-// Register - регистрация нового пользователя
 func (h *Handler) Register(c *gin.Context) {
 	var req struct {
 		Username string `json:"username"`
@@ -77,7 +70,6 @@ func (h *Handler) Register(c *gin.Context) {
 	c.JSON(201, gin.H{"message": "User registered successfully"})
 }
 
-// Login - авторизация пользователя
 func (h *Handler) Login(c *gin.Context) {
 	var req struct {
 		Username string `json:"username"`
@@ -110,7 +102,6 @@ func (h *Handler) Login(c *gin.Context) {
 	c.JSON(200, gin.H{"token": token})
 }
 
-// GetBalance - получение баланса пользователя
 func (h *Handler) GetBalance(c *gin.Context) {
 	userID := c.GetString("user_id")
 
@@ -130,7 +121,6 @@ func (h *Handler) GetBalance(c *gin.Context) {
 	c.JSON(200, gin.H{"balance": balance})
 }
 
-// Deposit - пополнение счета
 func (h *Handler) Deposit(c *gin.Context) {
 	var req struct {
 		Amount   float64 `json:"amount"`
@@ -177,7 +167,6 @@ func (h *Handler) Deposit(c *gin.Context) {
 	})
 }
 
-// Withdraw - вывод средств
 func (h *Handler) Withdraw(c *gin.Context) {
 	var req struct {
 		Amount   float64 `json:"amount"`
@@ -224,26 +213,24 @@ func (h *Handler) Withdraw(c *gin.Context) {
 	})
 }
 
-// GetRates - получение курсов валют
 func (h *Handler) GetRates(c *gin.Context) {
 	userID := c.GetString("user_id")
 	logger.WithField("user_id", userID).Info("getting exchange rates")
 
-	resp, err := h.exchangeClient.GetExchangeRates(context.Background(), &pb.Empty{})
+	rates, err := h.store.GetExchangeRates()
 	if err != nil {
-		logger.WithError(err).Error("failed to get exchange rates from gRPC")
+		logger.WithError(err).Error("failed to get exchange rates from database")
 		c.JSON(500, gin.H{"error": "Failed to retrieve exchange rates"})
 		return
 	}
 
 	logger.WithFields(logrus.Fields{
 		"user_id": userID,
-		"rates":   resp.Rates,
+		"rates":   rates,
 	}).Info("exchange rates retrieved")
-	c.JSON(200, gin.H{"rates": resp.Rates})
+	c.JSON(200, gin.H{"rates": rates})
 }
 
-// Exchange - обмен валют
 func (h *Handler) Exchange(c *gin.Context) {
 	var req struct {
 		FromCurrency string  `json:"from_currency"`
@@ -301,7 +288,6 @@ func (h *Handler) Exchange(c *gin.Context) {
 	})
 }
 
-// AuthMiddleware - middleware для проверки JWT
 func (h *Handler) AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		tokenStr := c.GetHeader("Authorization")
@@ -312,7 +298,7 @@ func (h *Handler) AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		tokenStr = tokenStr[7:] // Убираем "Bearer "
+		tokenStr = tokenStr[7:]
 		token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
 			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, fmt.Errorf("unexpected signing method")
@@ -340,7 +326,6 @@ func (h *Handler) AuthMiddleware() gin.HandlerFunc {
 	}
 }
 
-// Вспомогательные методы
 func (h *Handler) getExchangeRate(from, to string) (float64, error) {
 	cacheKey := from + "_" + to
 	if cached, found := h.cache.Get(cacheKey); found {
@@ -351,25 +336,22 @@ func (h *Handler) getExchangeRate(from, to string) (float64, error) {
 		return cached.(float64), nil
 	}
 
-	resp, err := h.exchangeClient.GetExchangeRateForCurrency(context.Background(), &pb.CurrencyRequest{
-		FromCurrency: from,
-		ToCurrency:   to,
-	})
+	rate, err := h.store.GetExchangeRate(from, to)
 	if err != nil {
 		logger.WithFields(logrus.Fields{
 			"from": from,
 			"to":   to,
-		}).WithError(err).Error("failed to get rate from gRPC")
+		}).WithError(err).Error("failed to get rate from database")
 		return 0, err
 	}
 
-	h.cache.Set(cacheKey, resp.Rate, 5*time.Minute)
+	h.cache.Set(cacheKey, rate, 5*time.Minute)
 	logger.WithFields(logrus.Fields{
 		"from": from,
 		"to":   to,
-		"rate": resp.Rate,
-	}).Info("rate retrieved from gRPC and cached")
-	return resp.Rate, nil
+		"rate": rate,
+	}).Info("rate retrieved from database and cached")
+	return rate, nil
 }
 
 func (h *Handler) generateJWT(userID int) (string, error) {
