@@ -42,6 +42,11 @@ func main() {
 	router.Use(corsMiddleware())
 	router.Use(loggingMiddleware())
 
+	router.OPTIONS("/api/v1/*any", func(c *gin.Context) {
+		logger.Info("Handling OPTIONS request explicitly")
+		c.AbortWithStatus(204)
+	})
+
 	h := handlers.NewHandler(store, cfg)
 
 	api := router.Group("/api/v1")
@@ -78,13 +83,12 @@ func corsMiddleware() gin.HandlerFunc {
 		c.Writer.Header().Set("Access-Control-Allow-Origin", "https://front-wallet.onrender.com")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		c.Writer.Header().Set("Access-Control-Max-Age", "86400") // Кэширование на 24 часа
+		c.Writer.Header().Set("Access-Control-Max-Age", "86400")
 
-		if c.Request.Method == "OPTIONS" {
-			logger.Info("Handling OPTIONS request")
-			c.AbortWithStatus(204)
-			return
-		}
+		logger.WithFields(logrus.Fields{
+			"method": c.Request.Method,
+			"path":   c.Request.URL.Path,
+		}).Info("CORS headers set")
 		c.Next()
 	}
 }
