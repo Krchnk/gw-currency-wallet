@@ -67,8 +67,8 @@ func main() {
 		port = ":" + port
 	}
 
-	logger.WithField("port", cfg.HTTPPort).Info("starting HTTP server")
-	if err := router.Run(cfg.HTTPPort); err != nil {
+	logger.WithField("port", port).Info("starting HTTP server")
+	if err := router.Run(port); err != nil {
 		logger.WithError(err).Fatal("failed to run server")
 	}
 }
