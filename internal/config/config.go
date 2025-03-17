@@ -8,7 +8,7 @@ import (
 )
 
 type Config struct {
-	HTTPPort  string
+	//HTTPPort  string
 	DBConfig  DBConfig
 	JWTSecret string
 }
@@ -32,7 +32,7 @@ func LoadConfig(path string) (Config, error) {
 	}
 
 	cfg := Config{
-		HTTPPort:  getEnv("HTTP_PORT", ":8080"),
+		//HTTPPort:  getEnv("HTTP_PORT", ":8080"),
 		JWTSecret: getEnv("JWT_SECRET", "your-secret-key"),
 		DBConfig: DBConfig{
 			Host:     getEnv("DB_HOST", "localhost"),
