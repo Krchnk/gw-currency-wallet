@@ -78,9 +78,10 @@ func corsMiddleware() gin.HandlerFunc {
 		c.Writer.Header().Set("Access-Control-Allow-Origin", "https://front-wallet.onrender.com")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		c.Writer.Header().Set("Access-Control-Max-Age", "86400") // Кэширование на 24 часа
 
-		// Обрабатываем предварительный запрос OPTIONS
 		if c.Request.Method == "OPTIONS" {
+			logger.Info("Handling OPTIONS request")
 			c.AbortWithStatus(204)
 			return
 		}
