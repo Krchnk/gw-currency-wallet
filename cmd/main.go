@@ -59,6 +59,14 @@ func main() {
 		}
 	}
 
+	port := os.Getenv("PORT")
+	if port == "" {
+		logger.Warn("PORT not set, defaulting to :8080")
+		port = ":8080"
+	} else {
+		port = ":" + port
+	}
+
 	logger.WithField("port", cfg.HTTPPort).Info("starting HTTP server")
 	if err := router.Run(cfg.HTTPPort); err != nil {
 		logger.WithError(err).Fatal("failed to run server")
