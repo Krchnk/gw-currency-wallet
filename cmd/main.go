@@ -5,6 +5,7 @@ import (
 	"github.com/Krchnk/gw-currency-wallet/internal/config"
 	"github.com/Krchnk/gw-currency-wallet/internal/handlers"
 	"github.com/Krchnk/gw-currency-wallet/internal/storages/postgres"
+	cors "github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 	"os"
@@ -39,7 +40,16 @@ func main() {
 	logger.Info("database connection established")
 
 	router := gin.Default()
-	router.Use(corsMiddleware())
+
+	router.Use(cors.New(cors.Config{
+		AllowOrigins:     []string{"https://front-wallet.onrender.com"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Content-Type", "Authorization"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: true,
+		MaxAge:           12 * time.Hour,
+	}))
+
 	router.Use(loggingMiddleware())
 
 	h := handlers.NewHandler(store, cfg)
@@ -70,33 +80,6 @@ func main() {
 	logger.WithField("port", port).Info("starting HTTP server")
 	if err := router.Run(port); err != nil {
 		logger.WithError(err).Fatal("failed to run server")
-	}
-}
-
-func corsMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "https://front-wallet.onrender.com")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		c.Writer.Header().Set("Access-Control-Max-Age", "86400")
-
-		// Логируем каждый запрос для отладки
-		logger.WithFields(logrus.Fields{
-			"method": c.Request.Method,
-			"path":   c.Request.URL.Path,
-		}).Info("CORS headers set")
-
-		// Обрабатываем OPTIONS
-		if c.Request.Method == "OPTIONS" {
-			logger.WithFields(logrus.Fields{
-				"method": c.Request.Method,
-				"path":   c.Request.URL.Path,
-			}).Info("Handling OPTIONS request")
-			c.AbortWithStatus(204)
-			return
-		}
-
-		c.Next()
 	}
 }
 
