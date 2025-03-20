@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
+	"github.com/Krchnk/currency-wallet-proto/exchangerates"
 	"github.com/Krchnk/gw-currency-wallet/internal/config"
 	"github.com/Krchnk/gw-currency-wallet/internal/storages"
 	"github.com/dgrijalva/jwt-go"
@@ -9,6 +11,8 @@ import (
 	"github.com/patrickmn/go-cache"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/bcrypt"
+
+	"net/http"
 	"os"
 	"time"
 )
@@ -25,16 +29,18 @@ func init() {
 }
 
 type Handler struct {
-	store storages.Storage
-	cfg   config.Config
-	cache *cache.Cache
+	store               storages.Storage
+	cfg                 config.Config
+	cache               *cache.Cache
+	exchangeRatesClient exchangerates.ExchangeRatesServiceClient
 }
 
-func NewHandler(store storages.Storage, cfg config.Config) *Handler {
+func NewHandler(store storages.Storage, cfg config.Config, exchangeRatesClient exchangerates.ExchangeRatesServiceClient) *Handler {
 	return &Handler{
-		store: store,
-		cfg:   cfg,
-		cache: cache.New(5*time.Minute, 10*time.Minute),
+		store:               store,
+		cfg:                 cfg,
+		cache:               cache.New(5*time.Minute, 10*time.Minute),
+		exchangeRatesClient: exchangeRatesClient,
 	}
 }
 
@@ -217,11 +223,21 @@ func (h *Handler) GetRates(c *gin.Context) {
 	userID := c.GetString("user_id")
 	logger.WithField("user_id", userID).Info("getting exchange rates")
 
-	rates, err := h.store.GetExchangeRates()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	resp, err := h.exchangeRatesClient.GetExchangeRates(ctx, &exchangerates.GetExchangeRatesRequest{})
 	if err != nil {
-		logger.WithError(err).Error("failed to get exchange rates from database")
-		c.JSON(500, gin.H{"error": "Failed to retrieve exchange rates"})
+		logger.WithError(err).Error("failed to get exchange rates from gRPC service")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve exchange rates"})
 		return
+	}
+
+	rates := make(map[string]float64)
+	for _, rate := range resp.Rates {
+		if rate.FromCurrency == "USD" { // Предполагаем, что фронтенд ожидает курсы относительно USD
+			rates[rate.ToCurrency] = rate.Rate
+		}
 	}
 
 	logger.WithFields(logrus.Fields{

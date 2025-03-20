@@ -5,6 +5,11 @@ import (
 	"github.com/Krchnk/gw-currency-wallet/internal/config"
 	"github.com/Krchnk/gw-currency-wallet/internal/handlers"
 	"github.com/Krchnk/gw-currency-wallet/internal/storages/postgres"
+
+	"github.com/Krchnk/currency-wallet-proto/exchangerates"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+
 	cors "github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
@@ -39,6 +44,22 @@ func main() {
 	}
 	logger.Info("database connection established")
 
+	// Инициализация gRPC-клиента
+	exchangeRatesServiceAddr := os.Getenv("EXCHANGE_RATES_SERVICE_ADDR")
+	if exchangeRatesServiceAddr == "" {
+		exchangeRatesServiceAddr = "exchange-rates-service:50051" // Значение по умолчанию
+		logger.Warn("EXCHANGE_RATES_SERVICE_ADDR not set, defaulting to exchange-rates-service:50051")
+	}
+
+	conn, err := grpc.Dial(exchangeRatesServiceAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		logger.WithError(err).Fatal("failed to connect to exchange rates gRPC service")
+	}
+	defer conn.Close()
+
+	exchangeRatesClient := exchangerates.NewExchangeRatesServiceClient(conn)
+	logger.WithField("address", exchangeRatesServiceAddr).Info("connected to exchange rates gRPC service")
+
 	router := gin.Default()
 
 	router.Use(cors.New(cors.Config{
@@ -52,7 +73,7 @@ func main() {
 
 	router.Use(loggingMiddleware())
 
-	h := handlers.NewHandler(store, cfg)
+	h := handlers.NewHandler(store, cfg, exchangeRatesClient)
 
 	api := router.Group("/api/v1")
 	{
