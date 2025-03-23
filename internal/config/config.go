@@ -14,16 +14,27 @@ type Config struct {
 }
 
 type DBConfig struct {
-	Host     string
-	Port     string
-	User     string
-	Password string
-	DBName   string
+	Host               string
+	Port               string
+	User               string
+	Password           string
+	DBName             string
+	SSLMode            string // Новое поле для sslmode
+	SSLRootCert        string // Новое поле для sslrootcert
+	TargetSessionAttrs string // Новое поле для target_session_attrs
 }
 
 func (d DBConfig) ConnectionString() string {
-	return fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
-		d.Host, d.Port, d.User, d.Password, d.DBName)
+	// Формируем базовую строку подключения
+	connStr := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s target_session_attrs=%s",
+		d.Host, d.Port, d.User, d.Password, d.DBName, d.SSLMode, d.TargetSessionAttrs)
+
+	// Если указан сертификат, добавляем его
+	if d.SSLRootCert != "" {
+		connStr += fmt.Sprintf(" sslrootcert=%s", d.SSLRootCert)
+	}
+
+	return connStr
 }
 
 func LoadConfig(path string) (Config, error) {
@@ -35,11 +46,14 @@ func LoadConfig(path string) (Config, error) {
 		//HTTPPort:  getEnv("HTTP_PORT", ":8080"),
 		JWTSecret: getEnv("JWT_SECRET", "your-secret-key"),
 		DBConfig: DBConfig{
-			Host:     getEnv("DB_HOST", "localhost"),
-			Port:     getEnv("DB_PORT", "5432"),
-			User:     getEnv("DB_USER", "postgres"),
-			Password: getEnv("DB_PASSWORD", "password"),
-			DBName:   getEnv("DB_NAME", "wallet"),
+			Host:               getEnv("DB_HOST", "localhost"),
+			Port:               getEnv("DB_PORT", "5432"),
+			User:               getEnv("DB_USER", "postgres"),
+			Password:           getEnv("DB_PASSWORD", "password"),
+			DBName:             getEnv("DB_NAME", "wallet"),
+			SSLMode:            getEnv("DB_SSLMODE", "verify-full"),             // Читаем DB_SSLMODE
+			SSLRootCert:        getEnv("DB_SSLROOTCERT", ""),                    // Читаем DB_SSLROOTCERT
+			TargetSessionAttrs: getEnv("DB_TARGET_SESSION_ATTRS", "read-write"), // Читаем DB_TARGET_SESSION_ATTRS
 		},
 	}
 	return cfg, nil
